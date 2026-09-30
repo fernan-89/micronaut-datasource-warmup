@@ -1,0 +1,150 @@
+plugins {
+    id 'io.micronaut.library' version '4.4.2'
+    id 'maven-publish'
+    id 'jacoco'
+}
+
+group   = 'io.github.fernan89'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    annotationProcessor 'org.projectlombok:lombok:1.18.36'
+    compileOnly         'org.projectlombok:lombok:1.18.36'
+
+    // Every optional datasource dependency is `compileOnly`: a consumer that only has Mongo on the
+    // classpath never pulls in R2DBC, and vice versa. The matching observer bean is itself gated by
+    // @Requires(beans = ...), so it simply never activates when its driver is absent.
+    api                 'io.projectreactor:reactor-core'
+    compileOnly         'io.micronaut.mongodb:micronaut-mongo-reactive'
+    compileOnly         'org.mongodb:mongodb-driver-reactivestreams'
+    compileOnly         'io.r2dbc:r2dbc-spi:1.0.0.RELEASE'
+    implementation      'org.slf4j:slf4j-api'
+
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
+    testCompileOnly     'org.projectlombok:lombok:1.18.36'
+    testImplementation  'io.micronaut.mongodb:micronaut-mongo-reactive'
+    testImplementation  'org.mongodb:mongodb-driver-reactivestreams'
+    testImplementation  'io.r2dbc:r2dbc-spi:1.0.0.RELEASE'
+    testImplementation  'io.micronaut.test:micronaut-test-junit5'
+    testImplementation  'org.junit.jupiter:junit-jupiter-api'
+    testRuntimeOnly     'org.junit.jupiter:junit-jupiter-engine'
+    testImplementation  'io.projectreactor:reactor-test'
+    testImplementation  'io.micronaut:micronaut-http-server-netty'
+    testImplementation  'io.micronaut.serde:micronaut-serde-jackson'
+    testAnnotationProcessor 'io.micronaut.serde:micronaut-serde-processor'
+    testAnnotationProcessor 'io.micronaut:micronaut-inject-java'
+    testImplementation  'org.mockito:mockito-core'
+    testImplementation  'org.mockito:mockito-junit-jupiter'
+    testRuntimeOnly     'org.junit.platform:junit-platform-launcher'
+    testRuntimeOnly     'ch.qos.logback:logback-classic'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs << '-parameters' << '-Xlint:unchecked' << '-Xlint:deprecation'
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events "failed"
+        exceptionFormat 'full'
+    }
+}
+
+micronaut {
+    version "4.4.2"
+    testRuntime("junit5")
+    processing {
+        incremental(true)
+        annotations("io.github.fernan89.warmup.*")
+    }
+}
+
+publishing {
+    publications {
+        create('library', MavenPublication) {
+            from components.java
+            artifactId = 'micronaut-datasource-warmup'
+            pom {
+                name = 'micronaut-datasource-warmup'
+                description = 'Startup readiness warmup (SDAM-style circuit breaker with progressive backoff) for MongoDB, MySQL and PostgreSQL on Micronaut, auto-detected by classpath.'
+                url = 'https://github.com/fernan-89/micronaut-datasource-warmup'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url  = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id   = 'fernan-89'
+                        name = 'Andre Silva'
+                    }
+                }
+                scm {
+                    url = 'https://github.com/fernan-89/micronaut-datasource-warmup'
+                }
+            }
+        }
+    }
+    repositories {
+        // Published by CI with the workflow token; `./gradlew publishToMavenLocal` serves local development.
+        maven {
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/fernan-89/micronaut-datasource-warmup')
+            credentials {
+                username = System.getenv('GITHUB_ACTOR')
+                password = System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
+}
+
+jacoco {
+    toolVersion = '0.8.12'
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('test') {
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    dependsOn tasks.named('test')
+    violationRules {
+        rule {
+            limit { counter = 'LINE';   value = 'COVEREDRATIO'; minimum = 1.00 }
+            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 1.00 }
+        }
+    }
+    classDirectories.setFrom(tasks.named('jacocoTestReport').get().classDirectories)
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('jacocoTestCoverageVerification')
+}
